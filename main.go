@@ -5,72 +5,88 @@ import (
 	"fmt"
 	"time"
 
-	"./src"
+	"./src/structs"
+
+	"strconv"
 
 	"github.com/gorilla/websocket"
 )
 
-type generic struct {
-	Type        string `json:"type"`
-	JSONString  string `json:"jsonstring"`
-	JSONString2 string `json:"jsonstring2"`
-}
-
 var host = "localhost"
 var port = "8080"
 var isMining = false
-var genericObject generic
+var isConnected = false
+var genericObject structs.Generic
+var connection *websocket.Conn
 
 var currentBlock structs.Block
 var currentBuffer structs.Buffer
 
-func connectToServer(conn *websocket.Conn) {
-	var result generic
+func dialer() error {
+	URL := "ws://" + host + ":" + port + ""
+	var dialer *websocket.Dialer
+	conn, _, err := dialer.Dial(URL, nil)
+	connection = conn
+	return err
+}
+
+func connectToServer() {
+	var result structs.Generic
 	result.Type = "connecting"
+	isConnected = true
 	fmt.Println("Connecting to: " + host + ":" + port + ".")
-	conn.WriteMessage(websocket.TextMessage, genericMarshall(result))
+	connection.WriteMessage(websocket.TextMessage, genericMarshall(result))
 }
 
 func main() {
-	URL := "ws://" + host + ":" + port + ""
-
-	var dialer *websocket.Dialer
-
-	conn, _, err := dialer.Dial(URL, nil)
+	err := dialer()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	connectToServer(conn)
-	go iter(conn)
+	connectToServer()
+	go iter()
 	for {
 		time.Sleep(time.Millisecond * 100)
 	}
 }
 
-func iter(conn *websocket.Conn) {
-	for {
+func iter() {
+	for isConnected == true {
 		time.Sleep(time.Millisecond * 400)
-		var incomming generic
-		err := conn.ReadJSON(&incomming)
+		var incomming structs.Generic
+		err := connection.ReadJSON(&incomming)
 		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseAbnormalClosure) {
+				isConnected = false
+				connection.Close()
+				reconnectToServer()
+			}
 			fmt.Println(err)
 			return
 		}
-		decode(incomming, conn)
+		decode(incomming)
 	}
 }
 
-func decode(incommingMessage generic, conn *websocket.Conn) {
+func reconnectToServer() {
+	for isConnected != true {
+		println("Reconnect to server...")
+		time.Sleep(time.Millisecond * 5000)
+	}
+}
+
+func decode(incommingMessage structs.Generic) {
 
 	genericObject.Type = ""
 	genericObject.JSONString = ""
 
 	if incommingMessage.Type == "connected" {
 		genericObject.Type = "connected"
+		isConnected = true
 		fmt.Println("Connected to server.")
-		conn.WriteMessage(websocket.TextMessage, genericMarshall(genericObject))
+		connection.WriteMessage(websocket.TextMessage, genericMarshall(genericObject))
 	} else if incommingMessage.Type == "startWorker" {
 		err := json.Unmarshal([]byte(incommingMessage.JSONString), &currentBlock)
 		if err != nil {
@@ -81,23 +97,28 @@ func decode(incommingMessage generic, conn *websocket.Conn) {
 		if err2 != nil {
 			println(err2)
 		}
+
 		if isMining {
-			println("Head changed, recieving new block!")
+			isMining = true
+			//miner.Miner(connection, currentBlock, currentBuffer)
+			println("Head changed, starting on block:" + strconv.Itoa(currentBlock.Header.Height) + ".")
 		} else {
 			isMining = true
-			println("Start mining!")
+			// miner.Miner(connection, currentBlock, currentBuffer)
+			println("Start mining on block: " + strconv.Itoa(currentBlock.Header.Height) + ".")
 		}
 	} else if incommingMessage.Type == "stopWorker" {
 		isMining = false
+		//miner.StopMining()
 		println("Stop mining!")
 	} else {
 		genericObject.Type = "ping"
 		genericObject.JSONString = ""
-		conn.WriteMessage(websocket.PingMessage, genericMarshall(genericObject))
+		connection.WriteMessage(websocket.PingMessage, genericMarshall(genericObject))
 	}
 }
 
-func genericMarshall(generic generic) []byte {
+func genericMarshall(generic structs.Generic) []byte {
 	result, _ := json.Marshal(generic)
 	return result
 }

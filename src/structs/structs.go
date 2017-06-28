@@ -1,5 +1,12 @@
 package structs
 
+//Generic struct for send and recieve
+type Generic struct {
+	Type        string `json:"type"`
+	JSONString  string `json:"jsonstring"`
+	JSONString2 string `json:"jsonstring2"`
+}
+
 //Block struct for JSON request
 type Block struct {
 	Header struct {
